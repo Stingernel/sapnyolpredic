@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prediksi Sepak Bola</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f4f4f4;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #0056b3;
+        }
+        h2 {
+            color: #444;
+            margin-bottom: 15px;
+        }
+        .match {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            padding: 15px;
+            transition: transform 0.3s;
+        }
+        .match:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        .match h3 {
+            margin: 0;
+            font-size: 1.2em;
+            color: #0056b3;
+        }
+        .correct {
+            color: green;
+        }
+        .incorrect {
+            color: red;
+        }
+        .loader {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            font-size: 1.2em;
+        }
+        .error {
+            color: red;
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #004494;
+        }
+        @media (max-width: 600px) {
+            .match {
+                padding: 10px;
+            }
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Data Pertandingan La Liga</h1>
+    <div class="loader">Loading...</div>
+    <div class="error" id="error-message"></div>
+    <button onclick="loadMatches()">Refresh Data</button>
+    <div id="finished-matches"></div>
+    <div id="upcoming-matches"></div>
+    <div id="ongoing-matches"></div> <!-- Tambahkan div untuk pertandingan yang sedang berlangsung -->
+
+    <script>
+        const apiToken = '2c13558f8a2b427c94a41e28d6d094af';
+        const weatherApiKey = '04b8ab465488d4fd7859297abf0a4d51';
+        const finishedMatchesUrl = 'https://api.football-data.org/v4/competitions/PD/matches?status=FINISHED';
+        const upcomingMatchesUrl = 'https://api.football-data.org/v4/competitions/PD/matches?status=SCHEDULED';
+        const ongoingMatchesUrl = 'https://api.football-data.org/v4/competitions/PD/matches?status=IN_PLAY'; // URL untuk pertandingan yang sedang berlangsung
+
+        let teamStats = {};
+
+        const cityNameMap = {
+            'FC Barcelona': 'Barcelona',
+            'Real Madrid CF': 'Madrid',
+            'Atletico Madrid': 'Madrid',
+            'Sevilla FC': 'Seville',
+            'Real Sociedad': 'San Sebastián',
+            'Valencia CF': 'Valencia',
+            'Athletic Club': 'Bilbao',
+            'Real Betis': 'Seville',
+            'Celta de Vigo': 'Vigo',
+            'Villarreal CF': 'Villarreal',
+            'Getafe CF': 'Getafe',
+            'UD Las Palmas': 'Las Palmas',
+            'Espanyol': 'Barcelona',
+            'Real Valladolid CF': 'Valladolid'
+        };
+
+        function fetchMatches(url) {
+            return fetch(url, {
+                method: 'GET',
+                headers: { 'X-Auth-Token': apiToken }
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            });
+        }
+
+        function fetchWeatherData(city) {
+            const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${weatherApiKey}&units=metric`;
+            return fetch(weatherUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Could not fetch weather data');
+                    }
+                    return response.json();
+                })
+                .then(data => ({
+                    weather: data.weather?.[0]?.description || 'clear',
+                    temperature: data.main?.temp || 20
+                }))
+                .catch(() => ({ weather: 'clear', temperature: 20 })); // Default values
+        }
+
+        function displayMatches(matches, isFinished, isOngoing = false) {
+            const containerId = isFinished ? 'finished-matches' : isOngoing ? 'ongoing-matches' : 'upcoming-matches';
+            const matchesContainer = document.getElementById(containerId);
+            matchesContainer.innerHTML = `<h2>${isFinished ? 'Hasil Pertandingan Terakhir' : isOngoing ? 'Pertandingan Sedang Berlangsung' : 'Pertandingan Mendatang'}</h2>`;
+
+            matches.forEach(match => {
+                const homeTeam = match.homeTeam.name;
+                const awayTeam = match.awayTeam.name;
+                const matchDate = new Date(match.utcDate).toLocaleString();
+
+                if (isFinished) {
+                    const homeGoals = match.score.fullTime.home;
+                    const awayGoals = match.score.fullTime.away;
+
+                    initializeTeamStats(homeTeam);
+                    initializeTeamStats(awayTeam);
+                    updateTeamStats(homeTeam, homeGoals, awayGoals);
+                    updateTeamStats(awayTeam, awayGoals, homeGoals);
+
+                    const predictedResult = predictOverUnder(homeTeam, awayTeam);
+                    const matchResult = (predictedResult === 'Over' && (homeGoals + awayGoals > 2.5)) ||
+                                        (predictedResult === 'Under' && (homeGoals + awayGoals <= 2.5)) ? 'correct' : 'incorrect';
+
+                    const probabilities = calculateMatchProbabilities(homeTeam, awayTeam);
+
+                    matchesContainer.innerHTML += `
+                        <div class="match">
+                            <h3>${homeTeam} vs ${awayTeam} (${matchDate})</h3>
+                            <p>Skor: ${homeGoals} - ${awayGoals}</p>
+                            <p class="${matchResult}">${matchResult === 'correct' ? '✔️ Prediksi Benar' : '❌ Prediksi Salah'}</p>
+                            <p>Kemungkinan ${homeTeam} Menang: ${probabilities.winProbability.toFixed(2)}%</p>
+                            <p>Kemungkinan Imbang: ${probabilities.drawProbability.toFixed(2)}%</p>
+                            <p>Kemungkinan ${awayTeam} Menang: ${probabilities.lossProbability.toFixed(2)}%</p>
+                        </div>
+                    `;
+                } else {
+                    fetchWeatherData(cityNameMap[homeTeam] || homeTeam).then(weatherData => {
+                        const predictionResult = predictOverUnder(homeTeam, awayTeam, weatherData.weather);
+                        const probabilities = calculateMatchProbabilities(homeTeam, awayTeam);
+
+                        matchesContainer.innerHTML += `
+                            <div class="match">
+                                <h3>${homeTeam} vs ${awayTeam} (${matchDate})</h3>
+                                <p>Cuaca: ${weatherData.weather}, Suhu: ${weatherData.temperature}°C</p>
+                                <p>Prediksi Total Gol: ${predictionResult}</p>
+                                <p>Kemungkinan ${homeTeam} Menang: ${probabilities.winProbability.toFixed(2)}%</p>
+                                <p>Kemungkinan Imbang: ${probabilities.drawProbability.toFixed(2)}%</p>
+                                <p>Kemungkinan ${awayTeam} Menang: ${probabilities.lossProbability.toFixed(2)}%</p>
+                            </div>
+                        `;
+                    }).catch(error => {
+                        const errorMessage = document.getElementById('error-message');
+                        errorMessage.textContent = `Error fetching weather data: ${error.message}`;
+                    });
+                }
+            });
+        }
+
+        function initializeTeamStats(team) {
+            if (!teamStats[team]) {
+                teamStats[team] = { goals: [], conceded: [], wins: 0, draws: 0, losses: 0, matches: 0, recentPerformance: [] };
+            }
+        }
+
+        function updateTeamStats(team, scored, conceded) {
+            teamStats[team].goals.push(scored);
+            teamStats[team].conceded.push(conceded);
+            teamStats[team].matches++;
+            if (scored > conceded) teamStats[team].wins++;
+            else if (scored < conceded) teamStats[team].losses++;
+            else teamStats[team].draws++;
+            teamStats[team].recentPerformance.push(scored - conceded);
+        }
+
+        function predictOverUnder(homeTeam, awayTeam, weather = 'clear') {
+            // Logic for prediction based on team stats and weather
+            // This is a simplified version. You can enhance it with more complex logic.
+            const homeGoalsAverage = teamStats[homeTeam].goals.reduce((a, b) => a + b, 0) / teamStats[homeTeam].matches;
+            const awayGoalsAverage = teamStats[awayTeam].goals.reduce((a, b) => a + b, 0) / teamStats[awayTeam].matches;
+
+            const totalGoals = homeGoalsAverage + awayGoalsAverage;
+            if (weather === 'rain') {
+                return totalGoals <= 2.5 ? 'Under' : 'Over';
+            } else {
+                return totalGoals > 2.5 ? 'Over' : 'Under';
+            }
+        }
+
+        function calculateMatchProbabilities(homeTeam, awayTeam) {
+            const homeWinProbability = (teamStats[homeTeam].wins / teamStats[homeTeam].matches) * 100 || 0;
+            const drawProbability = (teamStats[homeTeam].draws / teamStats[homeTeam].matches) * 100 || 0;
+            const awayWinProbability = (teamStats[awayTeam].wins / teamStats[awayTeam].matches) * 100 || 0;
+
+            return {
+                winProbability: homeWinProbability,
+                drawProbability: drawProbability,
+                lossProbability: awayWinProbability
+            };
+        }
+
+        function loadMatches() {
+            document.querySelector('.loader').style.display = 'block';
+            const errorMessage = document.getElementById('error-message');
+            errorMessage.textContent = '';
+            Promise.all([
+                fetchMatches(finishedMatchesUrl),
+                fetchMatches(upcomingMatchesUrl),
+                fetchMatches(ongoingMatchesUrl) // Ambil pertandingan yang sedang berlangsung
+            ]).then(([finishedMatches, upcomingMatches, ongoingMatches]) => {
+                document.querySelector('.loader').style.display = 'none';
+                displayMatches(finishedMatches.matches, true);
+                displayMatches(upcomingMatches.matches, false);
+                displayMatches(ongoingMatches.matches, false, true); // Tampilkan pertandingan yang sedang berlangsung
+            }).catch(error => {
+                document.querySelector('.loader').style.display = 'none';
+                errorMessage.textContent = `Error fetching matches: ${error.message}`;
+            });
+        }
+
+        loadMatches();
+    </script>
+</body>
+</html>
